@@ -19,7 +19,7 @@ func NewBalanceRepository(db *sql.DB) *BalanceRepository {
 	return &BalanceRepository{db: db}
 }
 
-func (r *BalanceRepository) GetBalance(ctx context.Context, userId int64) (model.Balance, error) {
+func (r *BalanceRepository) GetBalance(ctx context.Context, userID int64) (model.Balance, error) {
 	var currentText, withdrawnText string
 
 	err := r.db.QueryRowContext(ctx, `
@@ -38,7 +38,7 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userId int64) (model
 		)
 		SELECT (earned - withdrawn)::text, withdrawn::text
 		FROM totals
-	`, userId).Scan(&currentText, &withdrawnText)
+	`, userID).Scan(&currentText, &withdrawnText)
 
 	if err != nil {
 		return model.Balance{}, fmt.Errorf("ошибка получения баланса: %w", err)
@@ -46,11 +46,11 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userId int64) (model
 
 	current, err := model.ParseMoney(currentText)
 	if err != nil {
-		return model.Balance{}, fmt.Errorf("Ошибка получения текущего баланса: %w", err)
+		return model.Balance{}, fmt.Errorf("ошибка получения текущего баланса: %w", err)
 	}
 	withdrawn, err := model.ParseMoney(withdrawnText)
 	if err != nil {
-		return model.Balance{}, fmt.Errorf("Ошибка получения суммы списаний: %w", err)
+		return model.Balance{}, fmt.Errorf("ошибка получения суммы списаний: %w", err)
 	}
 
 	return model.Balance{
@@ -60,15 +60,15 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userId int64) (model
 
 }
 
-func (r *BalanceRepository) GetWithdrawalsByUser(ctx context.Context, userId int64) ([]model.Withdrawal, error) {
+func (r *BalanceRepository) GetWithdrawalsByUser(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, user_id, order_number, sum::text,processed_at
 		FROM withdrawals
 		WHERE user_id = $1
 		ORDER BY processed_at DESC, id DESC
-	`, userId)
+	`, userID)
 	if err != nil {
-		return nil, fmt.Errorf("Ошибка получения списка списаний: %w", err)
+		return nil, fmt.Errorf("ошибка получения списка списаний: %w", err)
 	}
 	defer rows.Close()
 
