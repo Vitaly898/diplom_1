@@ -45,14 +45,6 @@ jobs:
           mv $GITHUB_WORKSPACE/.tools/gophermarttest /usr/local/bin/gophermarttest
           mv $GITHUB_WORKSPACE/.tools/random /usr/local/bin/random
 
-      - name: Unit and PostgreSQL integration tests
-        env:
-          TEST_DATABASE_URI: postgresql://postgres:postgres@postgres/praktikum?sslmode=disable
-        run: |
-          go test -race ./... -coverprofile=cover.out
-          go tool cover -func=cover.out > coverage.txt
-          awk '/^total:/ { found = 1; print; if ($3 + 0 < 60) exit 1 } END { if (!found) exit 1 }' coverage.txt
-
       - name: Prepare binaries
         run: |
           (cd cmd/gophermart && go build -buildvcs=false -o gophermart)

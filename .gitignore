@@ -21,6 +21,3 @@ vendor/
 # IDEs directories
 .idea
 .vscode
-
-# Учебный план проекта (локальный)
-PLAN.md
