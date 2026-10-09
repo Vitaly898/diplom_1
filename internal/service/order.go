@@ -14,14 +14,6 @@ var (
 	ErrOrderTaken         = errors.New("номер заказа уже загружен другим пользователем")
 )
 
-// Статусы заказа по заданию.
-const (
-	StatusNew        = "NEW"
-	StatusProcessing = "PROCESSING"
-	StatusInvalid    = "INVALID"
-	StatusProcessed  = "PROCESSED"
-)
-
 // Интерфейс объявлен в сервисе (инверсия зависимости):
 // сервис диктует хранилищу, какой контракт ему нужен.
 type OrderRepository interface {

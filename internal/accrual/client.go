@@ -122,12 +122,12 @@ func (c *Client) GetOrder(ctx context.Context, number string) (Result, error) {
 	}
 	result := Result{}
 	switch response.Status {
-	case "REGISTERED", "PROCESSING":
-		result.Status = "PROCESSING"
-	case "INVALID":
-		result.Status = "INVALID"
-	case "PROCESSED":
-		result.Status = "PROCESSED"
+	case "REGISTERED", model.StatusProcessing:
+		result.Status = model.StatusProcessing
+	case model.StatusInvalid:
+		result.Status = model.StatusInvalid
+	case model.StatusProcessed:
+		result.Status = model.StatusProcessed
 		if len(response.Accrual) > 0 && string(response.Accrual) != "null" {
 			amount, err := model.ParseMoney(string(response.Accrual))
 			if err != nil {

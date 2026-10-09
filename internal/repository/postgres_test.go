@@ -82,7 +82,7 @@ func TestPostgres(t *testing.T) {
 	}
 	t.Run("schema constraints", func(t *testing.T) {
 		var status string
-		if err := db.QueryRow(ctx, `SELECT status::text FROM orders WHERE number = 'legacy-order'`).Scan(&status); err != nil || status != "NEW" {
+		if err := db.QueryRow(ctx, `SELECT status::text FROM orders WHERE number = 'legacy-order'`).Scan(&status); err != nil || status != model.StatusNew {
 			t.Fatalf("legacy status=%s err=%v", status, err)
 		}
 		for _, tc := range []struct {
@@ -147,7 +147,7 @@ func TestPostgres(t *testing.T) {
 		t.Fatalf("missing order: %v", err)
 	}
 	order, err := orders.GetOrderByNumber(ctx, "2377225624")
-	if err != nil || order.UserID != userID || order.Status != "NEW" || order.Accrual != nil || order.UploadedAt.IsZero() {
+	if err != nil || order.UserID != userID || order.Status != model.StatusNew || order.Accrual != nil || order.UploadedAt.IsZero() {
 		t.Fatalf("order=%v error=%v", order, err)
 	}
 	list, err := orders.GetOrdersByUser(ctx, userID)
@@ -158,24 +158,24 @@ func TestPostgres(t *testing.T) {
 	if err != nil || len(pending) != 2 {
 		t.Fatalf("pending=%v error=%v", pending, err)
 	}
-	if err := orders.UpdateOrderAccrual(ctx, "2377225624", "PROCESSING", nil); err != nil {
+	if err := orders.UpdateOrderAccrual(ctx, "2377225624", model.StatusProcessing, nil); err != nil {
 		t.Fatal(err)
 	}
 	amount := model.Money(1025)
-	if err := orders.UpdateOrderAccrual(ctx, "2377225624", "PROCESSED", &amount); err != nil {
+	if err := orders.UpdateOrderAccrual(ctx, "2377225624", model.StatusProcessed, &amount); err != nil {
 		t.Fatal(err)
 	}
 	changed := model.Money(9999)
-	if err := orders.UpdateOrderAccrual(ctx, "2377225624", "PROCESSED", &changed); err != nil {
+	if err := orders.UpdateOrderAccrual(ctx, "2377225624", model.StatusProcessed, &changed); err != nil {
 		t.Fatal(err)
 	}
-	if err := orders.UpdateOrderAccrual(ctx, "2377225624", "PROCESSING", nil); err != nil {
+	if err := orders.UpdateOrderAccrual(ctx, "2377225624", model.StatusProcessing, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := orders.UpdateOrderAccrual(ctx, "12345678903", "INVALID", nil); err != nil {
+	if err := orders.UpdateOrderAccrual(ctx, "12345678903", model.StatusInvalid, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := orders.UpdateOrderAccrual(ctx, "12345678903", "PROCESSED", &changed); err != nil {
+	if err := orders.UpdateOrderAccrual(ctx, "12345678903", model.StatusProcessed, &changed); err != nil {
 		t.Fatal(err)
 	}
 	pending, err = orders.GetPendingOrderNumbers(ctx)
@@ -183,7 +183,7 @@ func TestPostgres(t *testing.T) {
 		t.Fatalf("final orders still pending: %v error=%v", pending, err)
 	}
 	order, err = orders.GetOrderByNumber(ctx, "2377225624")
-	if err != nil || order.Status != "PROCESSED" || order.Accrual == nil || *order.Accrual != 10.25 {
+	if err != nil || order.Status != model.StatusProcessed || order.Accrual == nil || *order.Accrual != 10.25 {
 		t.Fatalf("final order overwritten: %v error=%v", order, err)
 	}
 	balance, err = balances.GetBalance(ctx, userID)
@@ -217,7 +217,7 @@ func TestPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		amount := model.Money(10000)
-		if err := orders.UpdateOrderAccrual(ctx, "79927398713", "PROCESSED", &amount); err != nil {
+		if err := orders.UpdateOrderAccrual(ctx, "79927398713", model.StatusProcessed, &amount); err != nil {
 			t.Fatal(err)
 		}
 		start := make(chan struct{})

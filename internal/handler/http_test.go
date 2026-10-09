@@ -146,7 +146,7 @@ func TestOrderListHandler(t *testing.T) {
 		{name: "empty", status: 204},
 		{name: "failure", err: errors.New("database unavailable"), status: 500},
 		{name: "unauthorized", status: 401, unauthorized: true},
-		{name: "list", orders: []model.Order{{Number: "2377225624", Status: "PROCESSED", Accrual: &amount, UploadedAt: date}, {Number: "12345678903", Status: "NEW", UploadedAt: date}}, status: 200},
+		{name: "list", orders: []model.Order{{Number: "2377225624", Status: model.StatusProcessed, Accrual: &amount, UploadedAt: date}, {Number: "12345678903", Status: model.StatusNew, UploadedAt: date}}, status: 200},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r := balanceTestRequest(http.MethodGet, "/api/user/orders", "")

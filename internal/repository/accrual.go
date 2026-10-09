@@ -34,11 +34,11 @@ func (r *OrderRepository) GetPendingOrderNumbers(ctx context.Context) ([]string,
 }
 
 func (r *OrderRepository) UpdateOrderAccrual(ctx context.Context, number, status string, amount *model.Money) error {
-	if status != "PROCESSING" && status != "PROCESSED" && status != "INVALID" {
+	if status != model.StatusProcessing && status != model.StatusProcessed && status != model.StatusInvalid {
 		return fmt.Errorf("недопустимый статус заказа: %q", status)
 	}
 	var value any
-	if status == "PROCESSED" && amount != nil {
+	if status == model.StatusProcessed && amount != nil {
 		if *amount < 0 || *amount > 999999999999 {
 			return fmt.Errorf("сумма начисления вне диапазона NUMERIC(12,2)")
 		}

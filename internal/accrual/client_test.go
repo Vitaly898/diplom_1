@@ -33,12 +33,12 @@ func TestClientGetOrder(t *testing.T) {
 		notFound   bool
 		rateLimit  bool
 	}{
-		{name: "registered", code: 200, body: `{"order":"123","status":"REGISTERED"}`, status: "PROCESSING"},
-		{name: "processing", code: 200, body: `{"order":"123","status":"PROCESSING"}`, status: "PROCESSING"},
-		{name: "invalid", code: 200, body: `{"order":"123","status":"INVALID"}`, status: "INVALID"},
-		{name: "processed", code: 200, body: `{"order":"123","status":"PROCESSED","accrual":10.25}`, status: "PROCESSED", amount: moneyPointer(1025)},
-		{name: "zero", code: 200, body: `{"order":"123","status":"PROCESSED","accrual":0}`, status: "PROCESSED", amount: moneyPointer(0)},
-		{name: "no accrual", code: 200, body: `{"order":"123","status":"PROCESSED"}`, status: "PROCESSED"},
+		{name: "registered", code: 200, body: `{"order":"123","status":"REGISTERED"}`, status: model.StatusProcessing},
+		{name: "processing", code: 200, body: `{"order":"123","status":"PROCESSING"}`, status: model.StatusProcessing},
+		{name: "invalid", code: 200, body: `{"order":"123","status":"INVALID"}`, status: model.StatusInvalid},
+		{name: "processed", code: 200, body: `{"order":"123","status":"PROCESSED","accrual":10.25}`, status: model.StatusProcessed, amount: moneyPointer(1025)},
+		{name: "zero", code: 200, body: `{"order":"123","status":"PROCESSED","accrual":0}`, status: model.StatusProcessed, amount: moneyPointer(0)},
+		{name: "no accrual", code: 200, body: `{"order":"123","status":"PROCESSED"}`, status: model.StatusProcessed},
 		{name: "not registered", code: 204, wantErr: true, notFound: true},
 		{name: "rate limit", code: 429, retryAfter: "2", wantErr: true, rateLimit: true},
 		{name: "server error", code: 500, wantErr: true},
@@ -149,7 +149,7 @@ func TestClientRetriesTransientFailures(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"order":"123","status":"PROCESSING"}`))}, nil
 			})
 			result, err := client.GetOrder(context.Background(), "123")
-			if err != nil || calls != 3 || result.Status != "PROCESSING" {
+			if err != nil || calls != 3 || result.Status != model.StatusProcessing {
 				t.Fatalf("calls=%d result=%+v err=%v", calls, result, err)
 			}
 		})

@@ -49,22 +49,22 @@ func TestWorkerPollContinuesAfterFailure(t *testing.T) {
 		case "failed":
 			return Result{}, remoteErr
 		case "processing":
-			return Result{Status: "PROCESSING"}, nil
+			return Result{Status: model.StatusProcessing}, nil
 		case "processed":
-			return Result{Status: "PROCESSED", Accrual: moneyPointer(1025)}, nil
+			return Result{Status: model.StatusProcessed, Accrual: moneyPointer(1025)}, nil
 		default:
-			return Result{Status: "INVALID"}, nil
+			return Result{Status: model.StatusInvalid}, nil
 		}
 	})
 	worker := NewWorker(repo, client, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := worker.poll(context.Background()); !errors.Is(err, remoteErr) {
 		t.Fatalf("expected remote error, got %v", err)
 	}
-	if len(repo.updated) != 3 || repo.updated["processing"].Status != "PROCESSING" || repo.updated["invalid"].Status != "INVALID" {
+	if len(repo.updated) != 3 || repo.updated["processing"].Status != model.StatusProcessing || repo.updated["invalid"].Status != model.StatusInvalid {
 		t.Fatalf("unexpected updates: %v", repo.updated)
 	}
 	processed := repo.updated["processed"]
-	if processed.Status != "PROCESSED" || processed.Accrual == nil || *processed.Accrual != 1025 {
+	if processed.Status != model.StatusProcessed || processed.Accrual == nil || *processed.Accrual != 1025 {
 		t.Fatalf("unexpected accrual: %+v", processed)
 	}
 }
@@ -171,7 +171,7 @@ func TestWorkerPoolBoundedConcurrency(t *testing.T) {
 		entered <- struct{}{}
 		select {
 		case <-release:
-			return Result{Status: "PROCESSING"}, nil
+			return Result{Status: model.StatusProcessing}, nil
 		case <-ctx.Done():
 			return Result{}, ctx.Err()
 		}
