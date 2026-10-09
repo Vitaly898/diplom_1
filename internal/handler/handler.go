@@ -5,12 +5,11 @@ package handler
 
 import (
 	"github.com/Vitaly898/diplom_1/internal/auth"
-	"github.com/Vitaly898/diplom_1/internal/service"
 	"github.com/go-chi/chi/v5"
 	"net/http"
 )
 
-func NewRouter(userSvc *service.UserService, orderSvc *service.OrderService, balanceSvc *service.BalanceService, tokens *auth.TokenService) http.Handler {
+func NewRouter(userSvc userService, orderSvc orderService, balanceSvc balanceService, tokens *auth.TokenService) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/ping", ping)
 	ah := newAuthHandler(userSvc)

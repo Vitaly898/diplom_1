@@ -76,6 +76,8 @@ func (h *authHandler) login(w http.ResponseWriter, r *http.Request) {
 // Единственное место перевода ошибок сервиса → HTTP-коды.
 func (h *authHandler) writeAuthError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, service.ErrInvalidLogin):
+		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, service.ErrUserExists):
 		http.Error(w, "логин уже занят", http.StatusConflict)
 	case errors.Is(err, service.ErrInvalidCredentials):

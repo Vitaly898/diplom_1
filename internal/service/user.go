@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/Vitaly898/diplom_1/internal/auth"
 	"github.com/Vitaly898/diplom_1/internal/model"
@@ -14,6 +15,7 @@ import (
 
 // Бизнес-смыслы, которые хендлер мапит в HTTP-коды (409 / 401).
 var (
+	ErrInvalidLogin       = errors.New("логин должен содержать от 1 до 255 символов")
 	ErrUserExists         = errors.New("логин уже занят")
 	ErrInvalidCredentials = errors.New("неверная пара логин/пароль")
 )
@@ -37,6 +39,9 @@ func NewUserService(repo UserRepository, hasher auth.PasswordHasher, tokens *aut
 
 // Register: хеш → создание в БД → токен (автоматическая аутентификация).
 func (s *UserService) Register(ctx context.Context, login, password string) (string, error) {
+	if login == "" || utf8.RuneCountInString(login) > model.MaxLoginLength {
+		return "", ErrInvalidLogin
+	}
 	hash, err := s.hasher.Hash(password)
 	if err != nil {
 		return "", err
@@ -56,6 +61,9 @@ func (s *UserService) Register(ctx context.Context, login, password string) (str
 // Login: "не нашли" и "не совпал пароль" → ОДНА ошибка,
 // иначе по ответам можно узнать существующие логины.
 func (s *UserService) Login(ctx context.Context, login, password string) (string, error) {
+	if login == "" || utf8.RuneCountInString(login) > model.MaxLoginLength {
+		return "", ErrInvalidLogin
+	}
 	u, err := s.repo.GetUserByLogin(ctx, login)
 	if errors.Is(err, repository.ErrUserNotFound) {
 		return "", ErrInvalidCredentials

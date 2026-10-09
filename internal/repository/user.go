@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -18,10 +20,10 @@ var (
 )
 
 type UserRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
+func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
@@ -30,7 +32,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 // защита от дубликатов атомарна даже при одновременных вставках.
 func (r *UserRepository) CreateUser(ctx context.Context, login, passwordHash string) (int64, error) {
 	var id int64
-	err := r.db.QueryRowContext(ctx,
+	err := r.db.QueryRow(ctx,
 		`INSERT INTO users (login, password_hash) VALUES ($1, $2) RETURNING id`,
 		login, passwordHash,
 	).Scan(&id)
@@ -46,13 +48,13 @@ func (r *UserRepository) CreateUser(ctx context.Context, login, passwordHash str
 
 func (r *UserRepository) GetUserByLogin(ctx context.Context, login string) (*model.User, error) {
 	var u model.User
-	err := r.db.QueryRowContext(ctx,
+	err := r.db.QueryRow(ctx,
 		`SELECT id, login, password_hash, created_at FROM users WHERE login = $1`,
 		login,
 	).Scan(&u.ID, &u.Login, &u.PasswordHash, &u.CreatedAt)
 	if err != nil {
-		// sql.ErrNoRows — "не нашли строку", это НЕ сбой БД.
-		if errors.Is(err, sql.ErrNoRows) {
+		// pgx.ErrNoRows — "не нашли строку", это НЕ сбой БД.
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, fmt.Errorf("поиск пользователя: %w", err)

@@ -131,6 +131,7 @@ func TestLuhnValid(t *testing.T) {
 		valid  bool
 	}{
 		{"2377225624", true}, {"12345678903", true}, {"79927398713", true}, {"0018", true},
+		{strings.Repeat("0", 64), true}, {strings.Repeat("0", 65), false},
 		{"", false}, {"123", false}, {"79927398714", false}, {"12a3", false}, {"１２３", false}, {" 2377225624", false},
 	} {
 		if got := luhnValid(tt.number); got != tt.valid {
@@ -149,6 +150,7 @@ func TestUploadOrder(t *testing.T) {
 	}{
 		{name: "new", number: "2377225624"},
 		{name: "invalid", number: "123", wantErr: ErrInvalidOrderNumber},
+		{name: "too long", number: strings.Repeat("0", 65), wantErr: ErrInvalidOrderNumber},
 		{name: "own duplicate", number: "2377225624", createErr: repository.ErrOrderExists, owner: 42, already: true},
 		{name: "other user", number: "2377225624", createErr: repository.ErrOrderExists, owner: 43, wantErr: ErrOrderTaken},
 		{name: "insert failure", number: "2377225624", createErr: dbErr, wantErr: dbErr},
@@ -221,6 +223,7 @@ func TestBalanceService(t *testing.T) {
 	}{
 		{name: "success", number: "2377225624", sum: 100, calls: 1},
 		{name: "invalid order", number: "123", sum: 100, wantErr: ErrInvalidOrderNumber},
+		{name: "too long order", number: strings.Repeat("0", 65), sum: 100, wantErr: ErrInvalidOrderNumber},
 		{name: "zero", number: "2377225624", wantErr: ErrInvalidWithdrawalSum},
 		{name: "negative", number: "2377225624", sum: -1, wantErr: ErrInvalidWithdrawalSum},
 		{name: "insufficient", number: "2377225624", sum: 100, repoErr: repository.ErrInsufficientFunds, wantErr: ErrInsufficientFunds, calls: 1},
@@ -233,5 +236,39 @@ func TestBalanceService(t *testing.T) {
 				t.Fatalf("error=%v calls=%d", err, repo.calls)
 			}
 		})
+	}
+}
+
+func TestLoginLengthValidation(t *testing.T) {
+	hasher := auth.NewPasswordHasher()
+	tokens := auth.NewTokenService("test-secret")
+	repo := userRepoStub{
+		create: func(context.Context, string, string) (int64, error) {
+			t.Fatal("invalid login reached repository")
+			return 0, nil
+		},
+		get: func(context.Context, string) (*model.User, error) {
+			t.Fatal("invalid login reached repository")
+			return nil, nil
+		},
+	}
+	svc := NewUserService(repo, *hasher, tokens)
+	for _, login := range []string{"", strings.Repeat("я", model.MaxLoginLength+1)} {
+		if _, err := svc.Register(context.Background(), login, "password"); !errors.Is(err, ErrInvalidLogin) {
+			t.Fatal(err)
+		}
+		if _, err := svc.Login(context.Background(), login, "password"); !errors.Is(err, ErrInvalidLogin) {
+			t.Fatal(err)
+		}
+	}
+	boundary := strings.Repeat("я", model.MaxLoginLength)
+	repo.get = func(_ context.Context, login string) (*model.User, error) {
+		if login != boundary {
+			t.Fatal("login changed")
+		}
+		return nil, repository.ErrUserNotFound
+	}
+	if _, err := NewUserService(repo, *hasher, tokens).Login(context.Background(), boundary, "password"); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatal(err)
 	}
 }

@@ -2,9 +2,11 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -17,10 +19,10 @@ var (
 )
 
 type OrderRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewOrderRepository(db *sql.DB) *OrderRepository {
+func NewOrderRepository(db *pgxpool.Pool) *OrderRepository {
 	return &OrderRepository{db: db}
 }
 
@@ -28,7 +30,7 @@ func NewOrderRepository(db *sql.DB) *OrderRepository {
 // проставляет DEFAULT из схемы БД. UNIQUE-конфликт номера ловим
 // по коду 23505: защита от дубликатов атомарна, на стороне БД.
 func (r *OrderRepository) CreateOrder(ctx context.Context, userID int64, number string) error {
-	_, err := r.db.ExecContext(ctx,
+	_, err := r.db.Exec(ctx,
 		`INSERT INTO orders (user_id, number) VALUES ($1, $2)`, userID, number)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -42,16 +44,12 @@ func (r *OrderRepository) CreateOrder(ctx context.Context, userID int64, number 
 
 func (r *OrderRepository) GetOrderByNumber(ctx context.Context, number string) (*model.Order, error) {
 	var o model.Order
-	// Исправлено: был QueryContext (возвращает (rows, error), нельзя
-	// цеплять .Scan) — для одной строки нужен QueryRowContext.
-	// Исправлено: uploadedAt → uploaded_at (имя колонки в схеме БД;
-	// uploadedat в нижнем регистре не существует — упало бы в рантайме).
-	err := r.db.QueryRowContext(ctx,
+	err := r.db.QueryRow(ctx,
 		`SELECT id, user_id, number, status, accrual, uploaded_at
 		 FROM orders WHERE number = $1`, number,
 	).Scan(&o.ID, &o.UserID, &o.Number, &o.Status, &o.Accrual, &o.UploadedAt)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrOrderNotFound
 		}
 		return nil, fmt.Errorf("поиск заказа: %w", err)
@@ -62,7 +60,7 @@ func (r *OrderRepository) GetOrderByNumber(ctx context.Context, number string) (
 // Исправлено имя: GetOrdersByUser (множественное число — возвращаем
 // список), чтобы совпадать с интерфейсом в service.
 func (r *OrderRepository) GetOrdersByUser(ctx context.Context, userID int64) ([]model.Order, error) {
-	rows, err := r.db.QueryContext(ctx,
+	rows, err := r.db.Query(ctx,
 		`SELECT id, user_id, number, status, accrual, uploaded_at
 		 FROM orders WHERE user_id = $1
 		 ORDER BY uploaded_at DESC`, userID)

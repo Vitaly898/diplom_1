@@ -3,7 +3,9 @@ package config
 import (
 	"encoding/base64"
 	"flag"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +54,30 @@ func TestLoad(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRequiredEnvironmentPresence(t *testing.T) {
+	for _, key := range []string{envDatabaseURI, envAccrualAddress} {
+		for _, present := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/present=%v", key, present), func(t *testing.T) {
+				t.Setenv(envDatabaseURI, "db")
+				t.Setenv(envAccrualAddress, "http://accrual")
+				t.Setenv(key, "")
+				if !present {
+					if err := os.Unsetenv(key); err != nil {
+						t.Fatal(err)
+					}
+				}
+				oldFlags, oldArgs := flag.CommandLine, os.Args
+				flag.CommandLine = flag.NewFlagSet("presence", flag.ContinueOnError)
+				os.Args = []string{"gophermart"}
+				defer func() { flag.CommandLine, os.Args = oldFlags, oldArgs }()
+				_, err := Load()
+				if err == nil || strings.Contains(err.Error(), "пустой строкой") != present {
+					t.Fatalf("present=%v err=%v", present, err)
+				}
+			})
+		}
 	}
 }

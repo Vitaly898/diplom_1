@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -23,7 +22,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		log.Printf("ошибка: %v", err)
+		slog.Error("ошибка запуска", "error", err)
 		os.Exit(1)
 	}
 }
@@ -50,7 +49,7 @@ func run() error {
 	defer db.Close()
 
 	// 2. Приводим схему БД к актуальному состоянию. Идемпотентно.
-	if err := repository.Migrate(db); err != nil {
+	if err := repository.Migrate(ctx, db); err != nil {
 		return fmt.Errorf("миграции: %w", err)
 	}
 
@@ -89,7 +88,7 @@ func run() error {
 	// 5. Запуск в горутине: ListenAndServe блокирующий.
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("сервер запущен на %s", cfg.RunAddress)
+		slog.Info("сервер запущен", "address", cfg.RunAddress)
 		errCh <- srv.ListenAndServe()
 	}()
 
@@ -102,7 +101,7 @@ func run() error {
 		}
 		return fmt.Errorf("сервер: %w", err)
 	case <-ctx.Done():
-		log.Println("получен сигнал остановки, завершаем работу...")
+		slog.Info("получен сигнал остановки, завершаем работу...")
 	}
 
 	// 7. Graceful shutdown: не дольше 10 секунд. Сигнальный ctx уже
@@ -114,6 +113,6 @@ func run() error {
 		return fmt.Errorf("остановка сервера: %w", err)
 	}
 
-	log.Println("сервер остановлен")
+	slog.Info("сервер остановлен")
 	return nil
 }

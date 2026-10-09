@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Vitaly898/diplom_1/internal/model"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 )
 
 func TestConnectInvalidDSN(t *testing.T) {
@@ -34,29 +38,74 @@ func TestPostgres(t *testing.T) {
 	defer admin.Close()
 	schema := fmt.Sprintf("gophermart_test_%d", time.Now().UnixNano())
 	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.ExecContext(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if _, err := admin.ExecContext(cleanupCtx, "DROP SCHEMA "+quotedSchema+" CASCADE"); err != nil {
+		if _, err := admin.Exec(cleanupCtx, "DROP SCHEMA "+quotedSchema+" CASCADE"); err != nil {
 			t.Errorf("cleanup schema: %v", err)
 		}
 	}()
-	cfg, err := pgx.ParseConfig(dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.RuntimeParams["search_path"] = schema
-	db := stdlib.OpenDB(*cfg)
-	defer db.Close()
-	if err := Migrate(db); err != nil {
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	db, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(db); err != nil {
+	defer db.Close()
+	// Start with the schema deployed before review, then upgrade populated tables.
+	migrationDB := stdlib.OpenDBFromPool(db)
+	defer migrationDB.Close()
+	if err := goose.SetDialect("postgres"); err != nil {
+		t.Fatal(err)
+	}
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.UpToContext(ctx, migrationDB, "migrations", 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO users (login, password_hash) VALUES ('legacy', 'legacy-hash')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO orders (user_id, number) SELECT id, 'legacy-order' FROM users WHERE login = 'legacy'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(ctx, db); err != nil {
 		t.Fatalf("repeated migration: %v", err)
 	}
+	t.Run("schema constraints", func(t *testing.T) {
+		var status string
+		if err := db.QueryRow(ctx, `SELECT status::text FROM orders WHERE number = 'legacy-order'`).Scan(&status); err != nil || status != "NEW" {
+			t.Fatalf("legacy status=%s err=%v", status, err)
+		}
+		for _, tc := range []struct {
+			query string
+			args  []any
+			code  string
+		}{
+			{`INSERT INTO users (login, password_hash) VALUES ($1, 'hash')`, []any{strings.Repeat("x", 256)}, "22001"},
+			{`INSERT INTO users (login, password_hash) VALUES ('long-hash', $1)`, []any{strings.Repeat("x", 61)}, "22001"},
+			{`INSERT INTO orders (user_id, number) SELECT id, $1 FROM users WHERE login = 'legacy'`, []any{strings.Repeat("0", 65)}, "22001"},
+			{`INSERT INTO withdrawals (user_id, order_number, sum) SELECT id, $1, 1 FROM users WHERE login = 'legacy'`, []any{strings.Repeat("0", 65)}, "22001"},
+			{`UPDATE orders SET status = 'UNKNOWN' WHERE number = 'legacy-order'`, nil, "22P02"},
+		} {
+			_, err := db.Exec(ctx, tc.query, tc.args...)
+			var pgErr *pgconn.PgError
+			if !errors.As(err, &pgErr) || pgErr.Code != tc.code {
+				t.Fatalf("query=%s err=%v", tc.query, err)
+			}
+		}
+		if _, err := db.Exec(ctx, `DELETE FROM orders WHERE number = 'legacy-order'`); err != nil {
+			t.Fatal(err)
+		}
+	})
 	users := NewUserRepository(db)
 	orders := NewOrderRepository(db)
 	balances := NewBalanceRepository(db)

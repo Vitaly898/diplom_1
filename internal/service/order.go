@@ -76,7 +76,7 @@ func (s *OrderService) ListOrders(ctx context.Context, userID int64) ([]model.Or
 // Идём справа налево от контрольной цифры; каждую вторую удваиваем;
 // двузначные результаты уменьшаем на 9; сумма кратна 10.
 func luhnValid(number string) bool {
-	if number == "" {
+	if number == "" || len(number) > model.MaxOrderNumberLength {
 		return false
 	}
 	sum := 0

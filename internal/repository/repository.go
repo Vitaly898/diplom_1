@@ -1,44 +1,22 @@
-// Package repository — слой доступа к PostgreSQL. Предоставляет
-// подключение к базе и миграции; на следующих этапах здесь появятся
-// запросы к таблицам (users, orders, withdrawals).
+// Package repository provides PostgreSQL persistence.
 package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
-	// Пустой импорт: пакет stdlib пакета pgx в момент импорта
-	// регистрирует драйвер под именем "pgx" в реестре database/sql.
-	// Благодаря этому sql.Open("pgx", dsn) знает, как подключиться.
-	// "_" означает: импортируем ради побочного эффекта, символы не нужны.
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Connect создаёт пул соединений с PostgreSQL и проверяет, что база
-// реально доступна.
-//
-// ВАЖНО: sql.Open НЕ подключается к базе! Она только создаёт объект пула
-// и запоминает настройки. Реальное TCP-соединение установится позже,
-// лениво, при первом запросе. Поэтому обязателен PingContext — без него
-// "подключение к лежащей базе" успешно пройдёт, и сервис упадёт позже,
-// в неожиданном месте (fail fast нарушен).
-func Connect(ctx context.Context, dsn string) (*sql.DB, error) {
-	db, err := sql.Open("pgx", dsn)
+// Connect creates a pool and checks connectivity before returning it.
+func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
-		// Такая ошибка здесь почти невозможна (неверный DSN обычно выстрелит
-		// при первом запросе), но обрабатываем для полноты картины.
 		return nil, fmt.Errorf("создание пула соединений: %w", err)
 	}
-
-	// Ping отправляет лёгкий запрос в базу и ждёт ответа.
-	// Берём ctx из аргумента: если контекст уже отменён (нам дали SIGTERM
-	// ещё на старте) — не ждём таймаут, выходим сразу.
-	if err := db.PingContext(ctx); err != nil {
-		// Пул больше не нужен — закрываем, иначе утекут ресурсы.
-		_ = db.Close()
+	if err := db.Ping(ctx); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("подключение к базе данных: %w", err)
 	}
-
 	return db, nil
 }

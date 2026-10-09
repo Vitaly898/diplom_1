@@ -1,10 +1,13 @@
 package accrual
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -127,5 +130,85 @@ func TestClientCancellation(t *testing.T) {
 	cancel()
 	if _, err := client.GetOrder(ctx, "123"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancellation, got %v", err)
+	}
+}
+
+func TestClientRetriesTransientFailures(t *testing.T) {
+	for _, failure := range []string{"server", "transport"} {
+		t.Run(failure, func(t *testing.T) {
+			client, _ := NewClient("http://accrual.test")
+			calls := 0
+			client.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if calls < 3 {
+					if failure == "transport" {
+						return nil, errors.New("connection reset")
+					}
+					return &http.Response{StatusCode: 503, Body: io.NopCloser(strings.NewReader("temporary"))}, nil
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"order":"123","status":"PROCESSING"}`))}, nil
+			})
+			result, err := client.GetOrder(context.Background(), "123")
+			if err != nil || calls != 3 || result.Status != "PROCESSING" {
+				t.Fatalf("calls=%d result=%+v err=%v", calls, result, err)
+			}
+		})
+	}
+}
+
+func TestClientRetryPolicy(t *testing.T) {
+	for _, code := range []int{500, 503, 404, 429, 204} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			client, _ := NewClient("http://accrual.test")
+			calls := 0
+			client.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{StatusCode: code, Header: http.Header{"Retry-After": []string{"1"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+			})
+			_, err := client.GetOrder(context.Background(), "123")
+			want := 1
+			if code >= 500 {
+				want = 3
+			}
+			if err == nil || calls != want {
+				t.Fatalf("calls=%d want=%d err=%v", calls, want, err)
+			}
+		})
+	}
+}
+
+func TestClientCancellationDuringBackoff(t *testing.T) {
+	client, _ := NewClient("http://accrual.test")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	client.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 503, Body: cancelOnClose{cancel: cancel}}, nil
+	})
+	_, err := client.GetOrder(ctx, "123")
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
+
+type cancelOnClose struct{ cancel context.CancelFunc }
+
+func (c cancelOnClose) Read([]byte) (int, error) { return 0, io.EOF }
+func (c cancelOnClose) Close() error             { c.cancel(); return nil }
+
+func TestInvalidRetryAfterIsLogged(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	defer slog.SetDefault(previous)
+	client, _ := NewClient("http://accrual.test")
+	client.httpClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 429, Header: http.Header{"Retry-After": []string{"invalid-format"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
+	})
+	_, err := client.GetOrder(context.Background(), "123")
+	var limit *RateLimitError
+	if !errors.As(err, &limit) || limit.RetryAfter != time.Minute || !strings.Contains(output.String(), "invalid-format") {
+		t.Fatalf("err=%v log=%s", err, output.String())
 	}
 }

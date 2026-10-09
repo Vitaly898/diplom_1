@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +14,11 @@ import (
 	"time"
 
 	"github.com/Vitaly898/diplom_1/internal/model"
+)
+
+const (
+	maxAttempts   = 3
+	retryInterval = 100 * time.Millisecond
 )
 
 var ErrNotRegistered = errors.New("заказ ещё не зарегистрирован в accrual")
@@ -52,7 +58,31 @@ func (c *Client) GetOrder(ctx context.Context, number string) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("создание запроса начислений: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	var resp *http.Response
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		resp, err = c.httpClient.Do(req)
+		if ctx.Err() != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			return Result{}, ctx.Err()
+		}
+		retry := err != nil || (resp.StatusCode >= 500 && resp.StatusCode <= 599)
+		if !retry || attempt == maxAttempts-1 {
+			break
+		}
+		if resp != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+			resp.Body.Close()
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * retryInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return Result{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
 	if err != nil {
 		return Result{}, fmt.Errorf("запрос начислений: %w", err)
 	}
@@ -125,5 +155,6 @@ func parseRetryAfter(value string, now time.Time) time.Duration {
 		}
 		return 0
 	}
+	slog.Warn("не удалось разобрать Retry-After, используется значение по умолчанию", "retry_after", value, "fallback", time.Minute)
 	return time.Minute
 }

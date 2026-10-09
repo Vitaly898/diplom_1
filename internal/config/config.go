@@ -28,10 +28,12 @@ type Config struct {
 // Приоритет: флаг > переменная окружения > значение по умолчанию.
 func Load() (*Config, error) {
 	// Шаг 1: читаем env — эти значения станут дефолтами для флагов.
+	databaseURI, databaseSet := os.LookupEnv(envDatabaseURI)
+	accrualAddress, accrualSet := os.LookupEnv(envAccrualAddress)
 	cfg := &Config{
 		RunAddress:           getEnv(envRunAddress, defaultRunAddress),
-		DatabaseURI:          os.Getenv(envDatabaseURI),
-		AccrualSystemAddress: os.Getenv(envAccrualAddress),
+		DatabaseURI:          databaseURI,
+		AccrualSystemAddress: accrualAddress,
 		TokenSecret:          getEnv(envTokenSecret, randomTokenSecret()),
 	}
 
@@ -46,9 +48,15 @@ func Load() (*Config, error) {
 	// поэтому падаем сразу при старте, а не в разгар работы (fail fast).
 	// Важно: проверяем ПОСЛЕ flag.Parse(), чтобы учитывались и флаги.
 	if cfg.DatabaseURI == "" {
+		if databaseSet {
+			return nil, fmt.Errorf("%s задана пустой строкой; укажите адрес или флаг -d", envDatabaseURI)
+		}
 		return nil, fmt.Errorf("не задан адрес подключения к базе данных (env %s или флаг -d)", envDatabaseURI)
 	}
 	if cfg.AccrualSystemAddress == "" {
+		if accrualSet {
+			return nil, fmt.Errorf("%s задана пустой строкой; укажите адрес или флаг -r", envAccrualAddress)
+		}
 		return nil, fmt.Errorf("не задан адрес системы расчёта начислений (env %s или флаг -r)", envAccrualAddress)
 	}
 

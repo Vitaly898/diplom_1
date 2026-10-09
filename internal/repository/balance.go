@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Vitaly898/diplom_1/internal/model"
 )
@@ -12,17 +15,17 @@ import (
 var ErrInsufficientFunds = errors.New("недостаточно баллов")
 
 type BalanceRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewBalanceRepository(db *sql.DB) *BalanceRepository {
+func NewBalanceRepository(db *pgxpool.Pool) *BalanceRepository {
 	return &BalanceRepository{db: db}
 }
 
 func (r *BalanceRepository) GetBalance(ctx context.Context, userID int64) (model.Balance, error) {
 	var currentText, withdrawnText string
 
-	err := r.db.QueryRowContext(ctx, `
+	err := r.db.QueryRow(ctx, `
 		WITH totals AS (
 			SELECT
 				(
@@ -61,7 +64,7 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userID int64) (model
 }
 
 func (r *BalanceRepository) GetWithdrawalsByUser(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT id, user_id, order_number, sum::text,processed_at
 		FROM withdrawals
 		WHERE user_id = $1
@@ -104,21 +107,21 @@ func (r *BalanceRepository) GetWithdrawalsByUser(ctx context.Context, userID int
 }
 
 func (r *BalanceRepository) Withdraw(ctx context.Context, userID int64, orderNumber string, sum model.Money) error {
-	if sum <= 0 {
-		return fmt.Errorf("сумма списания должна быть положительной")
-	}
-
-	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{
-		Isolation: sql.LevelReadCommitted,
+	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel: pgx.ReadCommitted,
 	})
 	if err != nil {
 		return fmt.Errorf("начало транзакции списания: %w", err)
 	}
 
-	defer tx.Rollback()
+	defer func() {
+		rollbackCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(rollbackCtx)
+	}()
 
 	var lockedUserID int64
-	err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT id
 		FROM users
 		WHERE id = $1
@@ -129,7 +132,7 @@ func (r *BalanceRepository) Withdraw(ctx context.Context, userID int64, orderNum
 	}
 
 	var currentText string
-	err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT (
 			(
 				SELECT COALESCE(SUM(accrual), 0)
@@ -156,7 +159,7 @@ func (r *BalanceRepository) Withdraw(ctx context.Context, userID int64, orderNum
 		return ErrInsufficientFunds
 	}
 
-	_, err = tx.ExecContext(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO withdrawals (user_id, order_number, sum)
 		VALUES ($1, $2, $3::numeric)
 	`, userID, orderNumber, sum.String())
@@ -164,7 +167,7 @@ func (r *BalanceRepository) Withdraw(ctx context.Context, userID int64, orderNum
 		return fmt.Errorf("сохранение списания: %w", err)
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("подтверждение списания: %w", err)
 	}
 	return nil

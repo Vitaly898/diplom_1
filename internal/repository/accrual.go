@@ -8,7 +8,7 @@ import (
 )
 
 func (r *OrderRepository) GetPendingOrderNumbers(ctx context.Context) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT number
 		FROM orders
 		WHERE status IN ('NEW', 'PROCESSING')
@@ -44,7 +44,7 @@ func (r *OrderRepository) UpdateOrderAccrual(ctx context.Context, number, status
 		}
 		value = amount.String()
 	}
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.db.Exec(ctx, `
 		UPDATE orders
 		SET status = $2, accrual = $3::numeric
 		WHERE number = $1 AND status IN ('NEW', 'PROCESSING')
